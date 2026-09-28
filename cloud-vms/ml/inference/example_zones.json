@@ -1,0 +1,24 @@
+[
+  {
+    "name": "Gate line",
+    "zone_type": "line",
+    "points": [[0.28, 0.62], [0.64, 0.62]],
+    "config": {"in_side": "positive"}
+  },
+  {
+    "name": "Staff only",
+    "zone_type": "restricted",
+    "points": [[0.70, 0.62], [1.0, 0.62], [1.0, 1.0], [0.70, 1.0]],
+    "severity": "high",
+    "default_action": "allow",
+    "policies": [{"name": "visitors not allowed", "object_types": ["person"], "action": "alert"}]
+  },
+  {
+    "name": "Footpath (no vehicles)",
+    "zone_type": "restricted",
+    "points": [[0.30, 0.50], [0.62, 0.50], [0.62, 1.0], [0.30, 1.0]],
+    "severity": "medium",
+    "default_action": "allow",
+    "policies": [{"name": "no vehicles on footpath", "object_types": ["vehicle"], "action": "alert"}]
+  }
+]

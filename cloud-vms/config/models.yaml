@@ -1,0 +1,86 @@
+# Detector model catalogue.
+#
+# Each model maps its own labels to the canonical classes used everywhere else:
+#   person, bicycle, two_wheeler, three_wheeler, car, van, lcv, bus, truck
+# Labels are matched case-insensitively ("Two-wheeler" == "two_wheeler").
+#
+# These entries are seeded into the model registry (database) on first start.
+# After that, manage models from the "Models & Data" page or the API.
+#
+# Profiles:
+#   shared      -> the active model with role "shared" detects people AND vehicles (fastest; default)
+#   specialized -> the active "person" model + the active "vehicle" model run on every frame
+
+models:
+  - name: coco-yolo26n
+    role: shared
+    weights: yolo26n.pt            # downloaded automatically by Ultralytics on first use
+    source: pretrained
+    dataset: COCO 2017 (80 classes)
+    active: true
+    class_map:
+      person: person
+      bicycle: bicycle
+      motorcycle: two_wheeler
+      car: car
+      bus: bus
+      truck: truck
+
+  - name: coco-yolo26s
+    role: shared
+    weights: yolo26s.pt
+    source: pretrained
+    dataset: COCO 2017 (80 classes)
+    notes: More accurate, ~2x slower than the nano model. Good choice on a GPU.
+    class_map:
+      person: person
+      bicycle: bicycle
+      motorcycle: two_wheeler
+      car: car
+      bus: bus
+      truck: truck
+
+  - name: person-yolo26n
+    role: person
+    weights: yolo26n.pt
+    source: pretrained
+    dataset: COCO 2017 (person class only)
+    active: true
+    class_map:
+      person: person
+
+  # Indian vehicles: IISc UVH-26 fine-tuned YOLOv11-S (Bengaluru Safe City CCTV, Apache-2.0).
+  # Download with:  python ml/datasets/download_models.py --uvh26
+  - name: vehicles-uvh26-yolo11s
+    role: vehicle
+    weights: data/weights/UVH-26-MV-YOLOv11-S.pt
+    source: pretrained
+    dataset: UVH-26 (IISc AIM, 26k Bengaluru CCTV images)
+    active: true
+    class_map:
+      hatchback: car
+      sedan: car
+      suv: car
+      muv: car
+      bus: bus
+      truck: truck
+      three_wheeler: three_wheeler
+      two_wheeler: two_wheeler
+      lcv: lcv
+      mini_bus: bus
+      tempo_traveller: van
+      bicycle: bicycle
+      van: van
+
+  # Fallback vehicle model used by the "specialized" profile when UVH-26 weights are missing.
+  - name: vehicles-coco-yolo26n
+    role: vehicle
+    weights: yolo26n.pt
+    source: pretrained
+    dataset: COCO 2017 (vehicle classes)
+    class_map:
+      bicycle: bicycle
+      motorcycle: two_wheeler
+      car: car
+      bus: bus
+      truck: truck

@@ -1,0 +1,67 @@
+# Local "cloud-like" stack: PostgreSQL + MinIO (S3) + Redis + MediaMTX + API + a separate worker.
+#   docker compose up --build        then open http://localhost:8000
+# The simple single-process setup (setup_windows.bat / start_vms.bat) does not need any of this.
+
+x-vms-env: &vms-env
+  VMS_DATABASE_URL: postgresql+psycopg://vms:vms-password@postgres:5432/vms
+  VMS_STORAGE_BACKEND: s3
+  VMS_S3_BUCKET: vms
+  VMS_S3_ENDPOINT_URL: http://minio:9000
+  VMS_S3_REGION: us-east-1
+  AWS_ACCESS_KEY_ID: vms-minio
+  AWS_SECRET_ACCESS_KEY: vms-minio-secret
+  VMS_REDIS_URL: redis://redis:6379/0
+  VMS_SECRET_KEY: change-me-to-a-long-random-string
+  VMS_ADMIN_PASSWORD: ChangeMe123
+  VMS_TIMEZONE: Asia/Kolkata
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment: { POSTGRES_USER: vms, POSTGRES_PASSWORD: vms-password, POSTGRES_DB: vms }
+    volumes: [pgdata:/var/lib/postgresql/data]
+    healthcheck: { test: ["CMD-SHELL", "pg_isready -U vms"], interval: 5s, retries: 20 }
+
+  redis:
+    image: redis:7-alpine
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment: { MINIO_ROOT_USER: vms-minio, MINIO_ROOT_PASSWORD: vms-minio-secret }
+    ports: ["9001:9001"]
+    volumes: [miniodata:/data]
+
+  minio-init:
+    image: minio/mc:latest
+    depends_on: [minio]
+    entrypoint: >
+      /bin/sh -c "until mc alias set local http://minio:9000 vms-minio vms-minio-secret; do sleep 2; done;
+      mc mb -p local/vms; mc anonymous set none local/vms; exit 0"
+
+  mediamtx:  # RTSP -> browser (HLS / WebRTC) gateway for raw live view
+    image: bluenviron/mediamtx:latest
+    ports: ["8554:8554", "8888:8888", "8889:8889"]
+    volumes: [./infrastructure/docker/mediamtx.yml:/mediamtx.yml:ro]
+
+  api:
+    build: { context: ., dockerfile: infrastructure/docker/Dockerfile }
+    environment: { <<: *vms-env, VMS_EMBEDDED_WORKERS: "false" }
+    ports: ["8000:8000"]
+    volumes: [vmsdata:/app/data]
+    depends_on:
+      postgres: { condition: service_healthy }
+      minio-init: { condition: service_completed_successfully }
+      redis: { condition: service_started }
+
+  worker:  # scale with: docker compose up --scale worker=1 (use worker groups for more)
+    build: { context: ., dockerfile: infrastructure/docker/Dockerfile }
+    command: ["python", "-m", "app.workers.run", "--group", "default"]
+    environment: *vms-env
+    volumes: [vmsdata:/app/data]
+    depends_on: [api]
+
+volumes:
+  pgdata: {}
+  miniodata: {}
+  vmsdata: {}

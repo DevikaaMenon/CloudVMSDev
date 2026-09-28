@@ -1,0 +1,17 @@
+# MediaMTX: republishes camera RTSP streams to browsers (HLS on :8888, WebRTC on :8889).
+# Add one path per camera, then put http://<host>:8888/<path>/index.m3u8 in the camera's
+# "Raw live stream URL" field. Keep camera passwords out of URLs shown to users.
+logLevel: info
+hls: yes
+hlsVariant: lowLatency
+webrtc: yes
+rtsp: yes
+
+paths:
+  # gate1:
+  #   source: rtsp://user:password@192.168.1.64:554/Streaming/Channels/101
+  #   sourceOnDemand: yes
+  # demo: publish a video file as a fake camera with
+  #   ffmpeg -re -stream_loop -1 -i data/uploads/demo_gate.mp4 -c:v libx264 -f rtsp rtsp://localhost:8554/demo
+  demo:
+    source: publisher
