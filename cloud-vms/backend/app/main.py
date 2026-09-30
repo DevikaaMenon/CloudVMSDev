@@ -14,7 +14,7 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import select
+from sqlalchemy import select, update
 
 from .api import admin, analytics, auth, cameras, events, live, models_api, recordings, zones
 from .core.config import get_settings
@@ -22,8 +22,9 @@ from .core.errors import install_error_handlers
 from .core.logging import request_id_var, setup_logging
 from .core.permissions import ROLE_PERMISSIONS
 from .core.security import hash_password
+from .core.timeutil import utcnow
 from .db import init_db, session_scope
-from .models import Role, User
+from .models import Dataset, Role, TrainingJob, User
 from .services.model_registry import seed_models
 
 log = logging.getLogger("vms")
@@ -55,6 +56,15 @@ def bootstrap() -> None:
                         "VMS_ADMIN_PASSWORD" if s.admin_password else "data/initial_admin_password.txt")
     with session_scope() as db:
         seed_models(db)
+    with session_scope() as db:
+        # training / dataset imports run as threads of the API process: anything still marked as
+        # running at start-up died with the previous process and would block new jobs forever
+        stale = db.execute(update(TrainingJob).where(TrainingJob.status.in_(["queued", "running"]))
+                           .values(status="failed", finished_at=utcnow())).rowcount
+        stale += db.execute(update(Dataset).where(Dataset.status == "processing")
+                            .values(status="failed", stats={"error": "interrupted by a server restart"})).rowcount
+        if stale:
+            log.warning("marked %d interrupted training job(s) / dataset import(s) as failed", stale)
 
 
 @asynccontextmanager

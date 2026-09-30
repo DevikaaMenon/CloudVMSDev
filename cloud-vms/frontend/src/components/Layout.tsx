@@ -82,12 +82,13 @@ export default function Layout({ children }: { children: ReactNode }) {
         </div>
         <main className="content">{children}</main>
       </div>
-      {pwOpen && <ChangePassword forced={!!user?.must_change_password} onClose={() => setPwOpen(false)} />}
+      {(pwOpen || user?.must_change_password) && <ChangePassword forced={!!user?.must_change_password}
+        onClose={() => setPwOpen(false)} onSignOut={async () => { await logout(); nav("/login"); }} />}
     </div>
   );
 }
 
-function ChangePassword({ onClose, forced }: { onClose: () => void; forced: boolean }) {
+function ChangePassword({ onClose, onSignOut, forced }: { onClose: () => void; onSignOut: () => void; forced: boolean }) {
   const { refresh } = useAuth();
   const toast = useToast();
   const [cur, setCur] = useState("");
@@ -97,14 +98,16 @@ function ChangePassword({ onClose, forced }: { onClose: () => void; forced: bool
     try {
       const r = await post<{ access_token: string }>("/auth/change-password", { current_password: cur, new_password: next });
       setToken(r.access_token);
+      // the server refuses every other request until the password is changed, so reload to refetch the pages
+      if (forced) { window.location.reload(); return; }
       await refresh();
       toast("Password changed");
       onClose();
     } catch (e) { setErr(e); }
   };
   return (
-    <Dialog title="Change password" onClose={onClose}
-      footer={<><button onClick={onClose}>{forced ? "Later" : "Cancel"}</button><button className="btn-primary" onClick={save} disabled={!cur || next.length < 8}>Change password</button></>}>
+    <Dialog title="Change password" onClose={forced ? () => {} : onClose}
+      footer={<><button onClick={forced ? onSignOut : onClose}>{forced ? "Sign out" : "Cancel"}</button><button className="btn-primary" onClick={save} disabled={!cur || next.length < 8}>Change password</button></>}>
       {forced && <p className="hint" style={{ marginTop: 0 }}>This account still uses its initial password. Choose your own now.</p>}
       <div className="form-grid">
         <label className="field full">Current password<input type="password" value={cur} onChange={(e) => setCur(e.target.value)} autoFocus /></label>

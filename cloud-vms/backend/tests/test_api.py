@@ -172,6 +172,8 @@ def test_evidence_signed_urls(client, admin):
     assert client.get(tampered).status_code == 403
     r = client.get(url, headers={"Range": "bytes=0-9"})
     assert r.status_code == 206 and len(r.content) == 10
+    for bad in ("bytes=abc-", "bytes=-", "bytes=5-x"):  # malformed ranges -> 416, not a 500
+        assert client.get(url, headers={"Range": bad}).status_code == 416
 
 
 def test_storage_key_validation():
@@ -199,6 +201,85 @@ def test_analytics_summary_counts_unique_entries(client, admin):
     assert s["people"]["entries"] == 2 and s["people"]["exits"] == 1 and s["people"]["on_site_estimate"] == 1
     assert s["vehicles"]["entries"] == 2 and s["vehicles"]["types_in"] == {"two_wheeler": 1, "car": 1}
     assert s["cameras"]["total"] == 2
+
+
+def test_forced_password_change_is_enforced_by_server(client, admin):
+    r = client.post("/api/users", headers=admin, json={"username": "op1", "password": "Operator1",
+                                                       "roles": ["operator"]})
+    uid = r.json()["id"]
+    # an admin-reset password must be replaced before the account can do anything else
+    client.patch(f"/api/users/{uid}", headers=admin, json={"password": "Reset1234"})
+    h = login(client, "op1", "Reset1234")
+    r = client.get("/api/cameras", headers=h)
+    assert r.status_code == 403 and r.json()["error"]["code"] == "password_change_required"
+    assert client.get("/api/auth/me", headers=h).json()["must_change_password"] is True
+    r = client.post("/api/auth/change-password", headers=h,
+                    json={"current_password": "Reset1234", "new_password": "MyOwn5678"})
+    h = {"Authorization": f"Bearer {r.json()['access_token']}"}
+    assert client.get("/api/cameras", headers=h).status_code == 200
+
+
+def test_client_ip_only_trusts_configured_proxies(monkeypatch):
+    from types import SimpleNamespace
+    from app.deps import client_ip
+    req = SimpleNamespace(client=SimpleNamespace(host="10.1.1.1"),
+                          headers={"x-forwarded-for": "6.6.6.6, 192.168.0.9"})
+    assert client_ip(req) == "10.1.1.1"  # spoofed header ignored
+    monkeypatch.setattr(get_settings(), "trusted_proxies", ["10.1.1.1"])
+    assert client_ip(req) == "192.168.0.9"  # the address the proxy itself appended
+
+
+def test_upload_weights_never_overwrites_existing_files(client, admin):
+    existing = get_settings().weights_dir / "yolo26n.pt"
+    existing.write_bytes(b"original weights")
+    for name in ("yolo26n", "coco-yolo26n"):  # same file name / same model name as the seeded default
+        r = client.post("/api/models/upload-weights", headers=admin,
+                        data={"name": name, "role": "shared", "class_map": '{"person": "person"}'},
+                        files={"file": ("new.pt", b"attacker weights", "application/octet-stream")})
+        assert r.status_code == 400, r.text
+    assert existing.read_bytes() == b"original weights"
+    existing.unlink()
+
+
+def test_upload_size_limit(client, admin, monkeypatch):
+    monkeypatch.setattr(get_settings(), "max_video_upload_mb", 0)
+    before = set(get_settings().uploads_dir.iterdir())
+    r = client.post("/api/cameras/upload-video", headers=admin,
+                    files={"file": ("big.mp4", b"x" * 1024, "video/mp4")})
+    assert r.status_code == 400 and "limit" in r.json()["error"]["message"]
+    assert set(get_settings().uploads_dir.iterdir()) == before  # partial file removed
+
+
+def test_stale_training_jobs_are_failed_on_startup():
+    from app.db import session_scope
+    from app.main import bootstrap
+    from app.models import Dataset, TrainingJob
+    with session_scope() as db:
+        ds = Dataset(name="stale-ds", kind="detection", path="x", status="processing")
+        db.add(ds)
+        db.flush()
+        job = TrainingJob(dataset_id=ds.id, base_model="yolo26n.pt", role="shared", params={}, status="running")
+        db.add(job)
+        db.flush()
+        ds_id, job_id = ds.id, job.id
+    bootstrap()
+    with session_scope() as db:
+        assert db.get(TrainingJob, job_id).status == "failed"
+        assert db.get(Dataset, ds_id).status == "failed"
+
+
+def test_supervisor_survives_detector_load_failure():
+    from app.workers.supervisor import Supervisor
+
+    def broken():
+        raise FileNotFoundError("weights missing")
+    sup = Supervisor(detector_factory=broken)
+    try:
+        sup._try_ensure_detector()  # must not raise
+        assert "weights missing" in sup.detector_error and sup.detector is None
+        sup._try_ensure_detector()  # within the 60 s back-off: no retry, still no exception
+    finally:
+        sup.stop()
 
 
 def test_audit_log_and_logout(client, admin):

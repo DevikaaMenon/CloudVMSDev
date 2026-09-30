@@ -52,6 +52,8 @@ class Supervisor:
         self.detector = None
         self.models_version = None
         self.model_version_str = ""
+        self.detector_error = ""
+        self._detector_retry_at = 0.0
         self.inference: InferenceService | None = None
         self.evidence = EvidenceWriter()
         self.db_writer = DbWriter()
@@ -99,6 +101,20 @@ class Supervisor:
             self._stop.wait(s.supervisor_interval_seconds)
 
     # ------------------------------------------------------------ detector
+    def _try_ensure_detector(self) -> None:
+        """A detector that fails to load (missing weights, no internet) must not stop the
+        supervisor: cameras still stream and record, and loading is retried once a minute."""
+        now = time.monotonic()
+        if now < self._detector_retry_at:
+            return
+        try:
+            self.ensure_detector()
+            self.detector_error = ""
+        except Exception as exc:
+            self._detector_retry_at = now + 60
+            self.detector_error = f"detector failed to load: {exc}"[:300]
+            log.exception("detector failed to load; running cameras without AI and retrying in 60 s")
+
     def ensure_detector(self) -> None:
         with session_scope() as db:
             version = (get_setting(db, "models_version"), get_setting(db, "detector_profile"))
@@ -129,7 +145,7 @@ class Supervisor:
                 rec_cfg = dict(cam.recording_config or {})
                 wanted[cam.id] = (cam.enabled, cam.enabled and cam.recording_enabled, rc, rec_cfg)
         if any(v[0] and v[2].analytics_enabled for v in wanted.values()):
-            self.ensure_detector()
+            self._try_ensure_detector()
 
         for cid in list(self.workers):
             if cid not in wanted or not wanted[cid][0]:
@@ -148,6 +164,8 @@ class Supervisor:
                     log.info("camera %s: stream settings changed, restarting", cid)
                     self._stop_worker(cid)
                     self._start_worker(rc, sig)
+                elif w.inference is None and self.inference is not None:
+                    w.inference = self.inference  # detector became available after the worker started
                 elif (w.rc.analytics.to_dict() != rc.analytics.to_dict()
                       or w.rc.zones_signature != rc.zones_signature
                       or w.rc.analytics_enabled != rc.analytics_enabled or w.rc.name != rc.name):
@@ -241,6 +259,7 @@ class Supervisor:
             "group": self.group,
             "uptime_s": round(time.time() - self.started_at),
             "detector": self.model_version_str,
+            "detector_error": self.detector_error,
             "device": getattr(self.detector, "device", None),
             "inference": {
                 "processed": self.inference.processed if self.inference else 0,

@@ -131,10 +131,13 @@ def media(key: str, request: Request, exp: int = Query(...), sig: str = Query(..
     size = path.stat().st_size
     rng = request.headers.get("range")
     if rng and rng.startswith("bytes="):
-        start_s, _, end_s = rng[6:].split(",")[0].partition("-")
-        start = int(start_s) if start_s else max(0, size - int(end_s or 0))
-        end = min(int(end_s), size - 1) if end_s and start_s else size - 1
-        if start >= size or start > end:
+        start_s, _, end_s = rng[6:].split(",")[0].strip().partition("-")
+        try:
+            start = int(start_s) if start_s else max(0, size - int(end_s))
+            end = min(int(end_s), size - 1) if end_s and start_s else size - 1
+        except ValueError:  # malformed header, e.g. "bytes=abc-" or "bytes=-"
+            start, end = size, -1
+        if start < 0 or start >= size or start > end:
             return Response(status_code=416, headers={"Content-Range": f"bytes */{size}"})
         end = min(end, start + 8 * 1024 * 1024 - 1)  # serve large files in 8 MB chunks
         with open(path, "rb") as f:

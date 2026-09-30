@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import re
-import shutil
 import uuid
 from pathlib import Path
 
@@ -20,7 +19,7 @@ from ..models import Camera, CameraCredential, CameraHealth, User, Zone
 from ..schemas import AnalyticsSettings, CameraIn, CameraOut, CameraPatch, HealthOut
 from ..services.audit import audit
 from ..services.camera_service import default_analytics_config, stream_url
-from ..services.storage import get_storage
+from ..services.storage import UploadTooLarge, get_storage, save_upload
 from ..workers.sources import probe
 
 router = APIRouter(tags=["cameras"])
@@ -106,8 +105,10 @@ async def upload_video(file: UploadFile = File(...), user: User = Depends(requir
     stem = re.sub(r"[^A-Za-z0-9_.-]+", "_", Path(file.filename).stem)[:60] or "video"
     name = f"{stem}_{uuid.uuid4().hex[:6]}{ext}"
     dst = s.uploads_dir / name
-    with open(dst, "wb") as f:
-        shutil.copyfileobj(file.file, f, length=1 << 20)
+    try:
+        save_upload(file.file, dst, s.max_video_upload_mb)
+    except UploadTooLarge as exc:
+        raise bad_request(str(exc))
     info = probe("file", str(dst))
     info.pop("frame", None)
     if not info.get("ok"):
