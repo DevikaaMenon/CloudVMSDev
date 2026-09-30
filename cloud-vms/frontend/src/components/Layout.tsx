@@ -47,20 +47,21 @@ export default function Layout({ children }: { children: ReactNode }) {
   return (
     <div className="shell">
       <aside className="rail">
-        <div className="brand"><Logo /><div><b>Gatehouse</b><small>Cloud video management</small></div></div>
+        <div className="brand"><Logo /><div><b>Gatehouse</b><small>Video management</small></div></div>
         <nav className="nav" aria-label="Main">
+          {NAV.some((n) => can(n.perm)) && <div className="nav-label">Monitor</div>}
           {NAV.filter((n) => can(n.perm)).map((n) => (
             <NavLink key={n.to} to={n.to} end={n.to === "/"}><n.icon />{n.label}</NavLink>
           ))}
-          <div className="sep" />
+          {SETUP.some((n) => can(n.perm)) && <div className="nav-label">Configure</div>}
           {SETUP.filter((n) => can(n.perm)).map((n) => (
             <NavLink key={n.to} to={n.to}><n.icon />{n.label}</NavLink>
           ))}
         </nav>
         <div className="rail-foot">
-          <div>{user?.full_name || user?.username}</div>
-          <div style={{ opacity: .7 }}>{user?.roles.join(", ")}</div>
-          <div style={{ display: "flex", gap: 10, marginTop: 6 }}>
+          <div className="who">{user?.full_name || user?.username}</div>
+          <div className="role">{user?.roles.map((r) => r.replace(/_/g, " ")).join(", ")}</div>
+          <div className="actions">
             <button onClick={() => setPwOpen(true)}>Password</button>
             <button onClick={cycleTheme}>Theme: {theme}</button>
           </div>
@@ -68,13 +69,13 @@ export default function Layout({ children }: { children: ReactNode }) {
       </aside>
       <div className="main">
         <div className="topbar">
-          <div className="clock">{now.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
+          <div className="clock">{now.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit", second: "2-digit", hour12: false })}
             <small>{now.toLocaleDateString(undefined, { weekday: "short", day: "numeric", month: "short" })}</small></div>
           <div className="ticker">
             {latest ? (<>
               <span className={`badge sev sev-${latest.severity}`}>{eventLabel(latest.event_type)}</span>
               <Link to={`/events?open=${latest.id}`}>{fmtClock(latest.event_timestamp)}, {latest.camera_name}: {latest.title}</Link>
-            </>) : <span className="muted">Listening for new incidents</span>}
+            </>) : <span className="idle"><i />Listening for new incidents</span>}
           </div>
           <div className="user-chip">
             <button className="btn-quiet" onClick={async () => { await logout(); nav("/login"); }}>Sign out</button>

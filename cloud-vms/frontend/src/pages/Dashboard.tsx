@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { get } from "../api";
 import { FlowLegend, GateFlowChart, TypeBars } from "../components/Charts";
-import { Empty, ErrorBox, SevBadge, StatusBadge } from "../components/ui";
+import { Empty, ErrorBox, StatusBadge } from "../components/ui";
 import { classLabel, eventLabel, fmtBytes, fmtClock, fmtDuration, useLoad } from "../hooks";
 import type { Summary } from "../types";
 
@@ -131,8 +131,8 @@ export default function Dashboard() {
           <header><h2>Processing</h2></header>
           <div className="body">
             <dl className="kv">
-              <dt>Stream to decision</dt><dd className="num">{s.processing.avg_end_to_end_ms != null ? `${s.processing.avg_end_to_end_ms} ms` : "no live cameras"}</dd>
-              <dt>Model time per frame</dt><dd className="num">{s.processing.avg_inference_ms != null ? `${s.processing.avg_inference_ms} ms` : "—"}</dd>
+              <dt>Stream to decision</dt><dd className="num">{s.processing.avg_end_to_end_ms != null ? `${s.processing.avg_end_to_end_ms} ms` : <span className="muted">no live cameras</span>}</dd>
+              <dt>Model time per frame</dt><dd className="num">{s.processing.avg_inference_ms != null ? `${s.processing.avg_inference_ms} ms` : <span className="muted">—</span>}</dd>
               <dt>Frames analysed</dt><dd className="num">{s.processing.total_inference_fps} per second</dd>
               <dt>Worker CPU</dt><dd className="num">{s.processing.cpu_percent != null ? `${s.processing.cpu_percent}%` : "—"}</dd>
               <dt>Detector</dt><dd>{s.workers.detector || "—"}{s.workers.device ? ` on ${s.workers.device}` : ""}</dd>
@@ -145,20 +145,40 @@ export default function Dashboard() {
 
       {Object.keys(s.events.by_type).length > 0 && (
         <section className="panel" style={{ marginTop: 16 }}>
-          <header><h2>Incidents by type</h2></header>
-          <div className="body stat-row">
-            {Object.entries(s.events.by_type).map(([k, v]) => (
-              <div className="stat" key={k}><b>{v}</b><span>{eventLabel(k)}</span></div>
-            ))}
-            {Object.entries(s.events.by_severity).length > 0 && (
-              <div className="stat"><div className="btn-row">{Object.entries(s.events.by_severity).map(([k, v]) =>
-                <span key={k} style={{ display: "inline-flex", gap: 4, alignItems: "center" }}><SevBadge severity={k} /><b className="num" style={{ fontSize: 15, display: "inline" }}>{v}</b></span>)}</div>
-                <span>by severity</span></div>
-            )}
+          <header><h2>Incidents in this period</h2><span className="spacer" /><span className="small muted num">{s.events.total} total</span></header>
+          <div className="body incident-mix">
+            <div className="stat-row">
+              {Object.entries(s.events.by_type).sort((a, b) => b[1] - a[1]).map(([k, v]) => (
+                <div className="stat" key={k}><b className="num">{v}</b><span>{eventLabel(k)}</span></div>
+              ))}
+            </div>
+            <SeveritySplit counts={s.events.by_severity} />
           </div>
         </section>
       )}
     </>
+  );
+}
+
+const SEVERITIES = ["critical", "high", "medium", "low"];
+
+function SeveritySplit({ counts }: { counts: Record<string, number> }) {
+  const total = SEVERITIES.reduce((n, k) => n + (counts[k] || 0), 0);
+  if (!total) return null;
+  return (
+    <div className="sev-split">
+      <span className="small muted">By severity</span>
+      <div className="track" role="img" aria-label={SEVERITIES.map((k) => `${counts[k] || 0} ${k}`).join(", ")}>
+        {SEVERITIES.filter((k) => counts[k]).map((k) => (
+          <span key={k} style={{ flex: counts[k], background: `var(--sev-${k})` }} />
+        ))}
+      </div>
+      <ul>
+        {SEVERITIES.map((k) => (
+          <li key={k}><i style={{ background: `var(--sev-${k})` }} />{k.charAt(0).toUpperCase() + k.slice(1)}<b>{counts[k] || 0}</b></li>
+        ))}
+      </ul>
+    </div>
   );
 }
 
@@ -167,7 +187,7 @@ function GateSide({ who, color, main, mainLabel, stats, chips }:
   return (
     <div className="gate-side">
       <div className="who"><i style={{ background: color }} />{who}</div>
-      <div><div className="big" style={{ color }}>{main}</div><div className="muted small">{mainLabel}</div></div>
+      <div><div className="big">{main}</div><div className="muted small">{mainLabel}</div></div>
       <div className="gate-stats">
         {stats.map(([k, v]) => <div key={k}><b>{v}</b><span>{k}</span></div>)}
       </div>
