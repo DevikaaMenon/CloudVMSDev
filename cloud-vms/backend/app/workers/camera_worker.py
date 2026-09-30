@@ -103,6 +103,12 @@ class CameraWorker:
         self.frame_size: tuple[int, int] | None = None
         self._stop = threading.Event()
         self._results: queue.Queue = queue.Queue(maxsize=4)
+        # Offline analysis (a file read as fast as possible) must not drop frames the way a live camera
+        # does, or counts change from run to run: capture waits for a free slot instead. The number of
+        # slots matches the inference queue limit, so no queue downstream can overflow.
+        # (realtime / stream type are part of the stream signature: changing them restarts the worker.)
+        self._offline = rc.stream_type == "file" and not rc.analytics.realtime
+        self._offline_slots = threading.Semaphore(2)
         self._lock = threading.Lock()
         self._evidence_jobs: list[EvidenceJob] = []
         self._in_meter, self._inf_meter = RateMeter(), RateMeter()
@@ -213,9 +219,16 @@ class CameraWorker:
             if self.rc.analytics_enabled and self.inference is not None:
                 if ts - last_sample >= 1.0 / max(0.1, cfg.inference_fps) - 0.01:  # 10 ms slack for float timing
                     last_sample = ts
+                    if self._offline:
+                        while not self._stop.is_set() and not self._offline_slots.acquire(timeout=0.5):
+                            pass
+                        if self._stop.is_set():
+                            break
                     accepted = self.inference.submit(InferenceJob(rc.camera_id, ts, frame, self._on_result))
                     if not accepted:
                         self.metrics.frames_dropped += 1
+                        if self._offline:
+                            self._offline_slots.release()  # the displaced frame will never come back
             elif now - last_preview >= 1.0 / cfg.preview_fps:
                 last_preview = now
                 img = resize_to_width(frame, cfg.preview_width).copy()
@@ -295,6 +308,9 @@ class CameraWorker:
                 self._lat_ms.append((time.perf_counter() - job.submitted) * 1000)
             except Exception:
                 log.exception("camera %s: analytics step failed", self.rc.camera_id)
+            finally:
+                if self._offline:
+                    self._offline_slots.release()
 
     def _annotate(self, frame, res, highlight, rc, width: int | None = None):
         img = frame.copy()
