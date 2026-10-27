@@ -106,7 +106,7 @@ backend/app/            FastAPI app
   analytics/            detector, tracker, re-ID, geometry, policies, rules, event engine (pure Python)
   workers/              sources, inference service, camera pipelines, recorder, evidence, supervisor
   api/  services/       REST API, storage (local/S3), stats, training, retention
-backend/tests/          31 tests: unit, API integration, end-to-end pipeline, real-model smoke test
+backend/tests/          37 tests: unit, API integration, end-to-end pipeline, real-model smoke test
 frontend/               React + TypeScript dashboard (built copy in frontend/dist)
 ml/                     dataset converters, college import, training, evaluation, benchmark
 config/models.yaml      detector catalogue and class mappings

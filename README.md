@@ -29,3 +29,5 @@ opens the dashboard in a new Chrome tab at <http://localhost:8000>.
 
 - Features, setup options, datasets and cloud deployment: [cloud-vms/README.md](cloud-vms/README.md)
 - Design, module map, permission matrix and known limitations: [cloud-vms/docs/architecture.md](cloud-vms/docs/architecture.md)
+- Training and evaluation: [cloud-vms/ml/README.md](cloud-vms/ml/README.md)
+- AWS deployment: [cloud-vms/infrastructure/aws/README.md](cloud-vms/infrastructure/aws/README.md)

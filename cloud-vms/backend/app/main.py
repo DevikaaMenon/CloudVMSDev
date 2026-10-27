@@ -33,6 +33,7 @@ log = logging.getLogger("vms")
 def bootstrap() -> None:
     """Create tables, roles, the first administrator and the model registry (idempotent)."""
     s = get_settings()
+    s.resolved_secret()  # create data/secret.key now, before separate workers start and need the same key
     init_db()
     with session_scope() as db:
         existing = {r.name: r for r in db.scalars(select(Role))}

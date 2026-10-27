@@ -1,24 +1,30 @@
 # Local "cloud-like" stack: PostgreSQL + MinIO (S3) + Redis + MediaMTX + API + a separate worker.
 #   docker compose up --build        then open http://localhost:8000
-# The simple single-process setup (setup_windows.bat / start_vms.bat) does not need any of this.
+# The simple single-process setup (RUN_VMS.bat) does not need any of this.
+#
+# Secrets: every password below can be overridden from the shell or from .env next to this file
+# (e.g. VMS_POSTGRES_PASSWORD=..., VMS_MINIO_PASSWORD=...). The defaults are for local testing only;
+# set your own before exposing the stack anywhere. When VMS_SECRET_KEY / VMS_ADMIN_PASSWORD are not
+# set, the API generates random ones in the shared data volume; read the first admin password with:
+#   docker compose exec api cat /app/data/initial_admin_password.txt
 
 x-vms-env: &vms-env
-  VMS_DATABASE_URL: postgresql+psycopg://vms:vms-password@postgres:5432/vms
+  VMS_DATABASE_URL: postgresql+psycopg://vms:${VMS_POSTGRES_PASSWORD:-vms-password}@postgres:5432/vms
   VMS_STORAGE_BACKEND: s3
   VMS_S3_BUCKET: vms
   VMS_S3_ENDPOINT_URL: http://minio:9000
   VMS_S3_REGION: us-east-1
-  AWS_ACCESS_KEY_ID: vms-minio
-  AWS_SECRET_ACCESS_KEY: vms-minio-secret
+  AWS_ACCESS_KEY_ID: ${VMS_MINIO_USER:-vms-minio}
+  AWS_SECRET_ACCESS_KEY: ${VMS_MINIO_PASSWORD:-vms-minio-secret}
   VMS_REDIS_URL: redis://redis:6379/0
-  VMS_SECRET_KEY: change-me-to-a-long-random-string
-  VMS_ADMIN_PASSWORD: ChangeMe123
+  VMS_SECRET_KEY: ${VMS_SECRET_KEY:-}          # empty: random key generated in data/secret.key
+  VMS_ADMIN_PASSWORD: ${VMS_ADMIN_PASSWORD:-}  # empty: random, written to data/initial_admin_password.txt
   VMS_TIMEZONE: Asia/Kolkata
 
 services:
   postgres:
     image: postgres:16-alpine
-    environment: { POSTGRES_USER: vms, POSTGRES_PASSWORD: vms-password, POSTGRES_DB: vms }
+    environment: { POSTGRES_USER: vms, POSTGRES_PASSWORD: "${VMS_POSTGRES_PASSWORD:-vms-password}", POSTGRES_DB: vms }
     volumes: [pgdata:/var/lib/postgresql/data]
     healthcheck: { test: ["CMD-SHELL", "pg_isready -U vms"], interval: 5s, retries: 20 }
 
@@ -28,15 +34,16 @@ services:
   minio:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
-    environment: { MINIO_ROOT_USER: vms-minio, MINIO_ROOT_PASSWORD: vms-minio-secret }
+    environment: { MINIO_ROOT_USER: "${VMS_MINIO_USER:-vms-minio}", MINIO_ROOT_PASSWORD: "${VMS_MINIO_PASSWORD:-vms-minio-secret}" }
     ports: ["9001:9001"]
     volumes: [miniodata:/data]
 
   minio-init:
     image: minio/mc:latest
     depends_on: [minio]
+    environment: { MINIO_USER: "${VMS_MINIO_USER:-vms-minio}", MINIO_PASSWORD: "${VMS_MINIO_PASSWORD:-vms-minio-secret}" }
     entrypoint: >
-      /bin/sh -c "until mc alias set local http://minio:9000 vms-minio vms-minio-secret; do sleep 2; done;
+      /bin/sh -c "until mc alias set local http://minio:9000 \"$$MINIO_USER\" \"$$MINIO_PASSWORD\"; do sleep 2; done;
       mc mb -p local/vms; mc anonymous set none local/vms; exit 0"
 
   mediamtx:  # RTSP -> browser (HLS / WebRTC) gateway for raw live view
@@ -59,7 +66,8 @@ services:
     command: ["python", "-m", "app.workers.run", "--group", "default"]
     environment: *vms-env
     volumes: [vmsdata:/app/data]
-    depends_on: [api]
+    depends_on:  # healthy = the API has created data/secret.key, so both use the same key
+      api: { condition: service_healthy }
 
 volumes:
   pgdata: {}

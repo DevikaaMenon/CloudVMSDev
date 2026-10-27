@@ -1,7 +1,7 @@
 """Real-model smoke test: YOLO26 + the full analytics pipeline on the synthetic demo video.
 
 Skipped automatically when the weights or the demo video are missing
-(create them with setup_windows.bat, or: python scripts/make_demo_video.py).
+(create them with RUN_VMS.bat, or: python scripts/make_demo_video.py).
 The demo video has known ground truth: 3 people walk in, 1 walks out, 1 enters the
 staff-only area, and a bus drives along the road (never through the gate).
 """
